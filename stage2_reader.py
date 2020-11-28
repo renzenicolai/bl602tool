@@ -90,10 +90,11 @@ if not sync(port):
     print("Not synced! Please reset target and try again.")
     exit(0)
 
+
 print("Reading flash...")
 
 readData = bytes([])
-readAmount = 81920 #42972
+readAmount = 1024 * 256 #256KB
 addr = 0
 while readAmount > 0:
     length = 512

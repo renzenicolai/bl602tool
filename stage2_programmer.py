@@ -90,7 +90,7 @@ if not sync(port):
     print("Not synced! Please reset target and try again.")
     exit(0)
 
-with open("blink.bin", "rb") as f:
+with open("write.bin", "rb") as f:
     targetBinary = f.read()
 
 print ("Erasing flash...")
@@ -111,34 +111,35 @@ while len(targetBinary[addr:]) > 0:
         print("Check returned", result)
 
 print("Done!")
-  
-print("Reading flash...")
 
-readData = bytes([])
-readAmount = len(targetBinary)
-addr = 0
-while readAmount > 0:
-    length = 512
-    if readAmount < length:
-        length = readAmount
-    print("Reading... Addr = " + str(addr) + ", Length remaining = " + str(readAmount), flush=True)
-    result = executeCommand('flash_read', bytes([addr & 0xFF, (addr>>8)&0xFF, (addr>>16)&0xFF, (addr>>24)&0xFF])+bytes([length & 0xFF, (length>>8)&0xFF, (length>>16)&0xFF, (length>>24)&0xFF]), 8, 100)
-    if result == None:
-        print("No result!")
+if False:
+    print("Reading flash...")
+
+    readData = bytes([])
+    readAmount = len(targetBinary)
+    addr = 0
+    while readAmount > 0:
+        length = 512
+        if readAmount < length:
+            length = readAmount
+        print("Reading... Addr = " + str(addr) + ", Length remaining = " + str(readAmount), flush=True)
+        result = executeCommand('flash_read', bytes([addr & 0xFF, (addr>>8)&0xFF, (addr>>16)&0xFF, (addr>>24)&0xFF])+bytes([length & 0xFF, (length>>8)&0xFF, (length>>16)&0xFF, (length>>24)&0xFF]), 8, 100)
+        if result == None:
+            print("No result!")
+            exit(1)
+        readData += result[2:]
+        addr += length
+        readAmount -= length
+
+    with open("read.bin", "wb") as f:
+        f.write(readData)
+
+    if len(readData) != len(targetBinary):
+        print("Verification failed, length mismatch!", len(readData), len(targetBinary))
         exit(1)
-    readData += result[2:]
-    addr += length
-    readAmount -= length
+        
+    for i in range(len(targetBinary)):
+        if (targetBinary[i] != readData[i]):
+            print("Verification failed, mismatch at address {:04x}: {:02x} != {:02x}".format(i, targetBinary[i], readData[i]))
 
-with open("read.bin", "wb") as f:
-    f.write(readData)
-
-if len(readData) != len(targetBinary):
-    print("Verification failed, length mismatch!", len(readData), len(targetBinary))
-    exit(1)
-    
-for i in range(len(targetBinary)):
-    if (targetBinary[i] != readData[i]):
-        print("Verification failed, mismatch at address {:04x}: {:02x} != {:02x}".format(i, targetBinary[i], readData[i]))
-
-print("Programmed and verified!")
+    print("Programmed and verified!")

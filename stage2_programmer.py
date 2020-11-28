@@ -19,6 +19,12 @@ commands = {
     'sha256_read':   {'id': 0x3D, 'length': 0x0008}, # length = n+4, params: start-addr (4 bytes), read-length (4 bytes)
 }
 
+try:
+    import serial.tools.list_ports as list_ports
+except ImportError:
+    print("The installed version (%s) of pyserial appears to be too old (Python interpreter %s). " % (sys.VERSION, sys.executable))
+    raise
+
 def openPort(device):
     return serial.Serial(device, 115200, timeout=0.1, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False)
 
@@ -84,7 +90,8 @@ def executeCommand(cmd, params=bytes([]), length=None, timeout=1):
     print("Bug: unknown command!")
     return None
 
-port = openPort('/dev/ttyUSB0')
+ser_list = sorted(ports.device for ports in list_ports.comports())
+port = openPort(str(ser_list[-1:][0]))
 
 if not sync(port):
     print("Not synced! Please reset target and try again.")

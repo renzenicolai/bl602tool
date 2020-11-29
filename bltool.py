@@ -9,6 +9,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 """
 
 import serial, time, argparse
+import serial.tools.list_ports as list_ports
 
 def openPort(device, baudrate=115200):
     return serial.Serial(device, baudrate, timeout=0.1, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False)
@@ -214,8 +215,10 @@ class EflashLoaderCommunication(GenericCommunication):
         return data
 
 def main():
+    ser_list = sorted(ports.device for ports in list_ports.comports())
+    defaultPort = str(ser_list[-1:][0])
     parser = argparse.ArgumentParser(description="BL602 flashing tool")
-    parser.add_argument("-p", "--port", dest="port", nargs=1, default=["/dev/ttyUSB0"], help="The serial port to use")
+    parser.add_argument("-p", "--port", dest="port", nargs=1, default=[defaultPort], help="The serial port to use")
     parser.add_argument("-b", "--baudrate", dest="baudrate", nargs=1, default=[115200], type=int, help="The speed at which to communicate")
     parser.add_argument("-i", "--info", dest="info", action="store_true", help="Read OTP information")
     parser.add_argument("-e", "--erase", dest="erase", action="store_true", help="Erase flash")

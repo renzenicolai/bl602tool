@@ -8,7 +8,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 
-import sys, struct, binascii, hashlib, genheader
+import sys, struct, binascii, hashlib, generateHeaders
 
 def calcHash(data):
     s = hashlib.sha256()
@@ -16,9 +16,9 @@ def calcHash(data):
     return s.digest()
 
 def main():
-    bootHeaderGenerator = genheader.BootConfig()
+    bootHeaderGenerator = generateHeaders.BootConfig()
     sectorSize = 4096 # bytes
-    bootHeaderLength = 176
+    emptySector = bytes([0xFF] * sectorSize)
     
     if len(sys.argv) != 3:
         print("Usage: {} <app> <flash image>")
@@ -26,46 +26,49 @@ def main():
     
     with open("blsp_boot2.bin", "rb") as f:
         bootloader = f.read()
+    bootloaderAndFiller = bootloader + bytes([0]*12)
+    bootloaderHash = calcHash(bootloaderAndFiller)
     
+    with open("partitions.bin", "rb") as f:
+        partitions = f.read()
+    
+    # User application
     with open(sys.argv[1], "rb") as f:
         app = f.read()
-    
-    emptyBootSectorSpace = bytes([0xFF] * (sectorSize - bootHeaderLength))
-    emptySector = bytes([0xFF] * sectorSize)
+    appAndFiller = app + bytes([0]*4)
+    appHash = calcHash(appAndFiller)
     
     appBootConfig = {
         "bootCfg": 0x3300,
-        "imgSegmentInfo": 0xa7e0,
+        "imgSegmentInfo": len(appAndFiller),
         "bootEntry": 0x0000,
         "imgStart": 0x2000
     }
-    appHash = calcHash(app)
+    
+    print("Length BL: {:02x} / {:02x}".format(len(bootloader), len(bootloaderAndFiller)))
+    print("Length AP: {:02x} / {:02x}".format(len(app), len(appAndFiller)))
+    
     appBootHeader = bootHeaderGenerator.generate(config = appBootConfig, flash = bootHeaderGenerator.flashConfig.appFlashConfig, sha256hash = appHash)
     
-    imageData  = emptyBootSectorSpace + emptySector
-    imageData += bootloader + bytes([0xFF] * (sectorSize - (len(bootloader) % 4096)))
-    imageData += (emptySector * 4)
-    imageData += appBootHeader + emptyBootSectorSpace
-    imageData += app + bytes([0xFF] * (sectorSize - (len(app) % 4096)))
-    imageHash = calcHash(imageData)
+    imageData  = emptySector
+    imageData += bootloaderAndFiller + bytes([0xFF] * (sectorSize - ((len(bootloaderAndFiller)) % 4096)))
+    imageData += (emptySector * 2)
+    imageData += partitions
+    imageData += partitions
+    imageData += appBootHeader + bytes([0xFF] * (sectorSize - len(appBootHeader)))
+    imageData += appAndFiller + bytes([0xFF] * (sectorSize - ((len(appAndFiller)) % 4096)))
     
     bootConfig = {
         "bootCfg": 0x3300,
-        "imgSegmentInfo": 0x9990,
+        "imgSegmentInfo": len(bootloaderAndFiller),
         "bootEntry": 0x0000,
         "imgStart": 0x2000
     }
-    bootHeader = bootHeaderGenerator.generate(config = bootConfig, flash = bootHeaderGenerator.flashConfig.appFlashConfig, sha256hash = imageHash)
-    image = bootHeader + imageData
+    bootHeader = bootHeaderGenerator.generate(config = bootConfig, flash = bootHeaderGenerator.flashConfig.appFlashConfig, sha256hash = bootloaderHash)
+    image = bootHeader + bytes([0xFF] * (sectorSize - len(bootHeader))) + imageData
     
     with open(sys.argv[2], "wb") as f:
         f.write(image)
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-

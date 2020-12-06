@@ -216,7 +216,7 @@ class BootConfig:
         self.revision = 1
         self.defaultBootConfig = {
             "bootCfg": 0x3300,
-            "imgSegmentInfo": 0xa7e0,#0x9990,
+            "imgSegmentInfo": 0x0000,
             "bootEntry": 0x0000,
             "imgStart": 0x2000
         }
@@ -235,7 +235,6 @@ class BootConfig:
         crc32 = binascii.crc32(data[0:], 0)
         data = data + struct.pack("<L", crc32)
         return data
-
 
 def main():
     config = BootConfig()

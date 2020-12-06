@@ -15,27 +15,38 @@ def openPort(device, baudrate=115200):
     return serial.Serial(device, baudrate, timeout=0.1, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False)
 
 class GenericCommunication:
-    def __init__(self, port):
+    def __init__(self, port, debug = False):
         self.commands = {}
         self.port = port
+        self.debug = debug
         
     def sync(self):
         # Flush
         while self.port.inWaiting() > 0:
             _ = self.port.read()
         # Write initialization sequence
-        self.port.write(bytes([ord("U")]*70))
+        syncRequest = bytes([ord("U")]*70)
+        self.port.write(syncRequest)
+        if self.debug:
+            print("SYNC > {}".format(syncRequest))
         time.sleep(0.1)
         # Check response
         if self.port.inWaiting() == 2:
             answer = self.port.read(2)
             if answer[0] == ord("O") and answer[1] == ord("K"):
+                if self.debug:
+                    print("SYNC < OK")
                 return True
+            else:
+                if self.debug:
+                    print("SYNC < (invalid response type 2) {}".format(answer))
+        if self.debug:
+            print("SYNC < (invalid response type 1) {}".format(self.port.read(1024)))
         return False
 
 class BootromCommunication(GenericCommunication):
-    def __init__(self, port):
-        super(BootromCommunication, self).__init__(port)
+    def __init__(self, port, debug = False):
+        super(BootromCommunication, self).__init__(port, debug)
         
         self.commands = {
             "get_boot_info":    {"id": 0x10, "length": 0x0000},
@@ -66,19 +77,32 @@ class BootromCommunication(GenericCommunication):
                 length = cmd["length"]
             if not len(params) == length:
                 raise Exception("Wrong parameter length", len(params), length)
-            self.port.write(bytes([cmd["id"], 1, length & 0xFF, length >> 8]))
+            command = bytes([cmd["id"], 1, length & 0xFF, length >> 8])
+            self.port.write(command)
+            if self.debug:
+                    print("BOOT > command {}".format(command))
             if length > 0:
                 self.port.write(params)
+                if self.debug:
+                    print("BOOT > parameters {}".format(params))
             time.sleep(0.1)
             if self.port.inWaiting() >= 2:
                 answer = self.port.read(2)
                 if answer[0] == ord("O") and answer[1] == ord("K"):
                     answer = self.port.read(8096)
+                    if self.debug:
+                        print("BOOT < result {}".format(answer))
                     return answer
                 elif answer[0] == ord("F") and answer[1] == ord("L"):
                     error = self.port.read(8096)
+                    if self.debug:
+                        print("BOOT < error {}".format(error))
+                    if error == b"\x03\x01":
+                        raise Exception("Device already in EFLASH app, reset board back to BOOTROM then try again")
                     raise Exception("Bootrom error result", error)
                 else:
+                    if self.debug:
+                        print("BOOT < unhandled {}".format(answer))
                     raise Exception("Communication error, unhandled response:", answer)
             else:
                 raise Exception("No response")
@@ -133,8 +157,8 @@ class BootromCommunication(GenericCommunication):
         _ = self.runImage()
 
 class EflashLoaderCommunication(GenericCommunication):
-    def __init__(self, port):
-        super(EflashLoaderCommunication, self).__init__(port)
+    def __init__(self, port, debug = False):
+        super(EflashLoaderCommunication, self).__init__(port, debug)
         
         self.commands = {
             "chip_erase":    {"id": 0x3C, "length": 0x0000},
@@ -158,9 +182,14 @@ class EflashLoaderCommunication(GenericCommunication):
             for i in range(len(params)):
                 chksum += params[i]
             chksum = chksum & 0xFF
-            self.port.write(bytes([cmd["id"], chksum, length & 0xFF, length >> 8]))
+            command = bytes([cmd["id"], chksum, length & 0xFF, length >> 8])
+            self.port.write(command)
+            if self.debug:
+                    print("TOOL > command {}".format(command))
             if length > 0:
                 self.port.write(params)
+                if self.debug:
+                    print("TOOL > parameters {}".format(params))
             time.sleep(0.1)
             while timeout > 1 and self.port.inWaiting() < 2:
                 time.sleep(0.1)
@@ -169,11 +198,17 @@ class EflashLoaderCommunication(GenericCommunication):
                 answer = self.port.read(2)
                 if answer[0] == ord("O") and answer[1] == ord("K"):
                     answer = self.port.read(expectAmount)
+                    if self.debug:
+                        print("TOOL < result {}".format(answer))
                     return answer
                 elif answer[0] == ord("F") and answer[1] == ord("L"):
                     error = self.port.read(8096)
+                    if self.debug:
+                        print("TOOL < error {}".format(error))
                     raise Exception("Eflash error result", error)
                 else:
+                    if self.debug:
+                        print("BOOT < unhandled {}".format(answer))
                     raise Exception("Communication error, unhandled response:", answer)
             else:
                 raise Exception("No response")
@@ -225,10 +260,11 @@ def main():
     parser.add_argument("-w", "--write", dest="write", nargs=2, help="Write to flash [address file]")
     parser.add_argument("-r", "--read", dest="read", nargs=3, help="Read from flash [address length file]")
     parser.add_argument("-v", "--verify", dest="verify", action="store_true", help="Verify after writing")
+    parser.add_argument("-L", "--logging", dest="logging", action="store_true", help="Enable communication debug logging")
     args = parser.parse_args()
-    
+        
     port = openPort(args.port[0], args.baudrate[0])
-    brom = BootromCommunication(port)
+    brom = BootromCommunication(port, args.logging)
     brom.sync()
     
     if args.info:
@@ -244,7 +280,7 @@ def main():
         with open("eflash_loader_rc32m.bin", "rb") as loaderFile:
             loaderBinary = loaderFile.read()
         brom.loadAndRunPreprocessedImage(loaderBinary)
-        eflash = EflashLoaderCommunication(port)
+        eflash = EflashLoaderCommunication(port, args.logging)
         eflash.sync()
         
         if args.erase:
